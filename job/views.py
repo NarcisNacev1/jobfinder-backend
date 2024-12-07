@@ -3,6 +3,7 @@ from rest_framework import status, viewsets
 from rest_framework.status import HTTP_201_CREATED
 from .serializers import CvSerializer
 
+
 class CvUpload(viewsets.ViewSet):
     """
     Viewset for handling Cv uploads
