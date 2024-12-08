@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Cv
+from .models import Cv, JobPosition
 
 class CvSerializer(serializers.ModelSerializer):
     class Meta:
