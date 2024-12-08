@@ -22,29 +22,21 @@ class Cv(models.Model):
 
 
 class JobPosition(models.Model):
-    """
-    Basic job information
-    """
-    title = models.CharField(max_length=100)
-    company_name = models.CharField(max_length=100)
-    location = models.CharField(max_length=100)
-    description = models.TextField()
-    #Requirements and matching criteria
-    skills_required = models.TextField()
-    experience_required = models.CharField(max_length=50, blank=True, null=True)
-    education_required = models.CharField(max_length=100, blank=True, null=True)
-    #Other details
-    job_type = models.CharField(
-        max_length=50,
-        choices=[('Full-Time', 'Full-Time'),
-                 ('Part-Time', 'Part-Time'),
-                 ('Internship', 'Internship')],
-        default='Full-Time'
-    )
-    salary_range = models.CharField(max_length=50, blank=True, null=True)
-    #Metadata
-    posted_at = models.DateTimeField(auto_now_add=True)
-    source = models.CharField(max_length=100, blank=True, null=True)
+    job_position = models.CharField(max_length=255)
+    company_name = models.CharField(max_length=255)
+    job_location = models.CharField(max_length=255)
+    job_posting_date = models.CharField(max_length=255, blank=True, null=True)
+    job_description = models.TextField(blank=True, null=True)
+    job_link = models.URLField(max_length=500)
+    seniority_level = models.CharField(max_length=100, blank=True, null=True)
+    employment_type = models.CharField(max_length=100, blank=True, null=True)
+    job_function = models.CharField(max_length=100, blank=True, null=True)
+    industries = models.CharField(max_length=100, blank=True, null=True)
+    job_apply_link = models.URLField(max_length=500, blank=True, null=True)
 
     def __str__(self):
-        return f"{self.title} at {self.company_name}"
+        return f"{self.job_position} at {self.company_name}"
+
+
+
+
