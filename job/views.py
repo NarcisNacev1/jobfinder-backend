@@ -5,8 +5,9 @@ import requests
 from .serializers import CvSerializer
 from jobfinder_backend.utils import extract_text_from_pdf, extract_section
 from jobfinder_backend.settings import api_key
-from .models import JobPosition
-
+from .models import JobPosition, Cv
+from math import sqrt
+from collections import Counter
 
 class CvUpload(viewsets.ViewSet):
     """
@@ -153,3 +154,69 @@ class CvUpload(viewsets.ViewSet):
                 "error": "Unexpected response format from ScrapingDog API. Expected a list.",
                 "response_text": response.text
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=["get"], url_path="rank-jobs")
+    def rank_jobs(self, request):
+        """
+        Rank jobs based on relevance to the most recently uploaded CV,
+        ensuring unique positions for the same company.
+        """
+        # Fetch the most recent CV by uploaded_at
+        user_cv = Cv.objects.order_by('-uploaded_at').first()
+
+        if not user_cv:
+            return Response({"error": "No CV found."}, status=404)
+
+        # Combine CV data
+        cv_data = f"{user_cv.skills or ''} {user_cv.experience or ''} {user_cv.education or ''}"
+
+        # Tokenize and calculate TF-IDF for CV
+        cv_tokens = Counter(cv_data.lower().split())
+        cv_tfidf = {word: freq / sum(cv_tokens.values()) for word, freq in cv_tokens.items()}
+
+        jobs = JobPosition.objects.all()  # Fetch all job entries
+        if not jobs.exists():
+            return Response({"error": "No jobs found in the database."}, status=404)
+
+        # Use a set to track unique job_position and company_name pairs
+        unique_jobs = {}
+        priority_queue = []
+
+        for job in jobs:
+            # Generate a unique key for the combination of job_position and company_name
+            unique_key = (job.job_position.lower(), job.company_name.lower())
+            if unique_key in unique_jobs:
+                continue
+            unique_jobs[unique_key] = job
+
+            job_data = f"{job.job_description or ''} {job.job_function or ''} {job.industries or ''}"
+            job_tokens = Counter(job_data.lower().split())
+            job_tfidf = {word: freq / sum(job_tokens.values()) for word, freq in job_tokens.items()}
+
+
+            dot_product = sum(cv_tfidf[word] * job_tfidf.get(word, 0) for word in cv_tfidf)
+            magnitude_cv = sqrt(sum(val ** 2 for val in cv_tfidf.values()))
+            magnitude_job = sqrt(sum(val ** 2 for val in job_tfidf.values()))
+            relevance_score = (
+                    dot_product / (magnitude_cv * magnitude_job) * 100
+            ) if magnitude_cv and magnitude_job else 0
+
+            priority_queue.append((relevance_score, job))
+
+
+        priority_queue.sort(reverse=True, key=lambda x: x[0])
+
+        ranked_jobs = []
+        for score, job in priority_queue:
+            ranked_jobs.append({
+                "job_position": job.job_position,
+                "company_name": job.company_name,
+                "job_description": (job.job_description[:300] + '...') if len(
+                    job.job_description) > 300 else job.job_description,
+                "score": round(score, 2),
+            })
+
+        return Response({
+            "ranked_jobs": ranked_jobs,
+            "description": "Score represents the match percentage between your CV and the job description."
+        }, status=200)
