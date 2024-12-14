@@ -1,0 +1,170 @@
+{
+	"info": {
+		"_postman_id": "b6377756-6aee-4651-9470-228809a0666c",
+		"name": "JobFinder",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "34687485",
+		"_collection_link": "https://scripted-9947.postman.co/workspace/Team-Workspace~6403514f-9204-494e-8c37-660298eb4dfb/collection/34687485-b6377756-6aee-4651-9470-228809a0666c?action=share&source=collection_link&creator=34687485"
+	},
+	"item": [
+		{
+			"name": "CreateCv",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "full_name",
+							"value": "John Doe",
+							"type": "text"
+						},
+						{
+							"key": "email",
+							"value": " john.doe@example.com",
+							"type": "text"
+						},
+						{
+							"key": "phone_number",
+							"value": "+38912345678",
+							"type": "text"
+						},
+						{
+							"key": "location",
+							"value": "Skopje",
+							"type": "text"
+						},
+						{
+							"key": "cv_file",
+							"type": "file",
+							"src": "/C:/Users/narci/Desktop/CV'S/EnglishCV.pdf"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{backendAPIUrl}}/cv/",
+					"host": [
+						"{{backendAPIUrl}}"
+					],
+					"path": [
+						"cv",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FetchJobs",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "field",
+							"value": "programming",
+							"type": "text"
+						},
+						{
+							"key": "geoid",
+							"value": "103420483",
+							"type": "text"
+						},
+						{
+							"key": "page",
+							"value": "1",
+							"type": "text"
+						},
+						{
+							"key": "job_id",
+							"value": "4084811798",
+							"type": "text",
+							"disabled": true
+						},
+						{
+							"key": "api_key",
+							"value": "",
+							"type": "text",
+							"disabled": true
+						}
+					]
+				},
+				"url": {
+					"raw": "{{backendAPIUrl}}/cv/fetch-job/",
+					"host": [
+						"{{backendAPIUrl}}"
+					],
+					"path": [
+						"cv",
+						"fetch-job",
+						""
+					],
+					"query": [
+						{
+							"key": "api_key",
+							"value": "67559f9f6ba6722802b8eb81",
+							"disabled": true
+						},
+						{
+							"key": "job_id",
+							"value": "4084811798",
+							"disabled": true
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "RankJobs",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{backendAPIUrl}}/cv/rank-jobs/",
+					"host": [
+						"{{backendAPIUrl}}"
+					],
+					"path": [
+						"cv",
+						"rank-jobs",
+						""
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "backendAPIUrl",
+			"value": "http://127.0.0.1:8000/api",
+			"type": "string"
+		}
+	]
+}
