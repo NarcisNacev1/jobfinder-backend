@@ -63,6 +63,7 @@ class CvUpload(viewsets.ViewSet):
         page = request.data.get("page", 1)
 
         url = "https://api.scrapingdog.com/linkedinjobs"
+
         params = {
             "api_key": api_key,
             "field": field,
@@ -96,6 +97,7 @@ class CvUpload(viewsets.ViewSet):
                 job_id = job.get("job_id")
                 if job_id:
                     job_ids.append(job_id)
+
                     job_data = {
                         "job_position": job.get("job_position"),
                         "job_link": job.get("job_link"),
@@ -159,7 +161,7 @@ class CvUpload(viewsets.ViewSet):
     def rank_jobs(self, request):
         """
         Rank jobs based on relevance to the most recently uploaded CV,
-        ensuring unique positions for the same company.
+        ensuring unique positions for the same company and only considering jobs with meaningful descriptions.
         """
         # Fetch the most recent CV by uploaded_at
         user_cv = Cv.objects.order_by('-uploaded_at').first()
@@ -174,9 +176,13 @@ class CvUpload(viewsets.ViewSet):
         cv_tokens = Counter(cv_data.lower().split())
         cv_tfidf = {word: freq / sum(cv_tokens.values()) for word, freq in cv_tokens.items()}
 
-        jobs = JobPosition.objects.all()  # Fetch all job entries
+        # Fetch jobs with meaningful descriptions (non-empty and not "No description available")
+        jobs = JobPosition.objects.exclude(job_description__isnull=True) \
+            .exclude(job_description__exact="") \
+            .exclude(job_description__icontains="No description available")
+
         if not jobs.exists():
-            return Response({"error": "No jobs found in the database."}, status=404)
+            return Response({"error": "No jobs with meaningful descriptions found in the database."}, status=404)
 
         # Use a set to track unique job_position and company_name pairs
         unique_jobs = {}
@@ -189,11 +195,11 @@ class CvUpload(viewsets.ViewSet):
                 continue
             unique_jobs[unique_key] = job
 
-            job_data = f"{job.job_description or ''} {job.job_function or ''} {job.industries or ''}"
+            job_data = f"{job.job_description} {job.job_function or ''} {job.industries or ''}"
             job_tokens = Counter(job_data.lower().split())
             job_tfidf = {word: freq / sum(job_tokens.values()) for word, freq in job_tokens.items()}
 
-
+            # Calculate relevance score using cosine similarity
             dot_product = sum(cv_tfidf[word] * job_tfidf.get(word, 0) for word in cv_tfidf)
             magnitude_cv = sqrt(sum(val ** 2 for val in cv_tfidf.values()))
             magnitude_job = sqrt(sum(val ** 2 for val in job_tfidf.values()))
@@ -203,7 +209,7 @@ class CvUpload(viewsets.ViewSet):
 
             priority_queue.append((relevance_score, job))
 
-
+        # Sort jobs by relevance score in descending order
         priority_queue.sort(reverse=True, key=lambda x: x[0])
 
         ranked_jobs = []
@@ -220,3 +226,4 @@ class CvUpload(viewsets.ViewSet):
             "ranked_jobs": ranked_jobs,
             "description": "Score represents the match percentage between your CV and the job description."
         }, status=200)
+
