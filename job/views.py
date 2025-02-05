@@ -209,7 +209,6 @@ class CvUpload(viewsets.ViewSet):
 
             priority_queue.append((relevance_score, job))
 
-        # Sort jobs by relevance score in descending order
         priority_queue.sort(reverse=True, key=lambda x: x[0])
 
         ranked_jobs = []
@@ -220,6 +219,7 @@ class CvUpload(viewsets.ViewSet):
                 "job_description": (job.job_description[:300] + '...') if len(
                     job.job_description) > 300 else job.job_description,
                 "score": round(score, 2),
+                "apply_link": job.job_apply_link
             })
 
         return Response({
