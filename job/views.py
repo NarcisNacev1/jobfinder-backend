@@ -9,7 +9,10 @@ from .models import JobPosition, Cv
 from transformers import BertTokenizer, BertModel
 import torch
 import openai
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 model = BertModel.from_pretrained("bert-base-uncased")
 
@@ -181,7 +184,6 @@ class CvUpload(viewsets.ViewSet):
         if not user_cv:
             return Response({"error": "No CV found."}, status=404)
 
-        # Process CV with BERT embedding (Assume `get_bert_embedding` function exists)
         cv_embedding = get_bert_embedding(f"{user_cv.skills} {user_cv.experience} {user_cv.education}")
 
         jobs = JobPosition.objects.exclude(job_description__isnull=True) \
@@ -201,21 +203,29 @@ class CvUpload(viewsets.ViewSet):
         top_jobs = job_scores[:3]
 
         openai_prompt = f"""
-            Here are the top 3 job matches for a candidate:
-            1. {top_jobs[0][1].job_position} at {top_jobs[0][1].company_name} (Score: {round(top_jobs[0][0], 2)}%)
-            Description: {top_jobs[0][1].job_description[:500]}
+        The following is the candidate's CV skills, experience, and education:
 
-            2. {top_jobs[1][1].job_position} at {top_jobs[1][1].company_name} (Score: {round(top_jobs[1][0], 2)}%)
-            Description: {top_jobs[1][1].job_description[:500]}
+        {user_cv.skills + user_cv.experience + user_cv.education}
 
-            3. {top_jobs[2][1].job_position} at {top_jobs[2][1].company_name} (Score: {round(top_jobs[2][0], 2)}%)
-            Description: {top_jobs[2][1].job_description[:500]}
+        Here are the top 3 job matches for the candidate:
+        1. {top_jobs[0][1].job_position} at {top_jobs[0][1].company_name} (Score: {round(top_jobs[0][0], 2)}%)
+           Description: {top_jobs[0][1].job_description[:500]}
 
-            Which job is the best fit for the candidate, and why? Consider skills, experience, and career growth.
-            Rank them on a scale of 1-10 as in recommended, with 10 being the best fit.
-            """
+        2. {top_jobs[1][1].job_position} at {top_jobs[1][1].company_name} (Score: {round(top_jobs[1][0], 2)}%)
+           Description: {top_jobs[1][1].job_description[:500]}
 
-        openai.api_key = "YOUR_OPENAI_API_KEY"
+        3. {top_jobs[2][1].job_position} at {top_jobs[2][1].company_name} (Score: {round(top_jobs[2][0], 2)}%)
+           Description: {top_jobs[2][1].job_description[:500]}
+
+        Based on the candidate's CV, which job is the best fit? Consider skills, experience, and career growth.
+        Rank them on a scale of 1-10, with 10 being the best fit.
+        """
+
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+
+        if not openai.api_key:
+            raise ValueError("OpenAI API Key not found! Make sure it's set in the .env file.")
+
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[{"role": "user", "content": openai_prompt}]
