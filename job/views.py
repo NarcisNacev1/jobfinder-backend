@@ -6,13 +6,28 @@ from .serializers import CvSerializer
 from jobfinder_backend.utils import extract_text_from_pdf, extract_section
 from jobfinder_backend.settings import api_key
 from .models import JobPosition, Cv
-from math import sqrt
-from collections import Counter
+from transformers import BertTokenizer, BertModel
+import torch
+import openai
+
+tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+model = BertModel.from_pretrained("bert-base-uncased")
+
+
+def get_bert_embedding(text):
+    """
+    Generate BERT embeddings for a given text
+    """
+    inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1)
 
 class CvUpload(viewsets.ViewSet):
     """
     Viewset for handling CV uploads
     """
+
     def create(self, request):
         """
         Handle the file upload, parse the CV for information, and save it.
@@ -160,70 +175,66 @@ class CvUpload(viewsets.ViewSet):
     @action(detail=False, methods=["get"], url_path="rank-jobs")
     def rank_jobs(self, request):
         """
-        Rank jobs based on relevance to the most recently uploaded CV,
-        ensuring unique positions for the same company and only considering jobs with meaningful descriptions.
+        Rank jobs using BERT embeddings and get OpenAI recommendation for the top 3.
         """
-        # Fetch the most recent CV by uploaded_at
         user_cv = Cv.objects.order_by('-uploaded_at').first()
-
         if not user_cv:
             return Response({"error": "No CV found."}, status=404)
 
-        # Combine CV data
-        cv_data = f"{user_cv.skills or ''} {user_cv.experience or ''} {user_cv.education or ''}"
+        # Process CV with BERT embedding (Assume `get_bert_embedding` function exists)
+        cv_embedding = get_bert_embedding(f"{user_cv.skills} {user_cv.experience} {user_cv.education}")
 
-        # Tokenize and calculate TF-IDF for CV
-        cv_tokens = Counter(cv_data.lower().split())
-        cv_tfidf = {word: freq / sum(cv_tokens.values()) for word, freq in cv_tokens.items()}
-
-        # Fetch jobs with meaningful descriptions (non-empty and not "No description available")
         jobs = JobPosition.objects.exclude(job_description__isnull=True) \
             .exclude(job_description__exact="") \
             .exclude(job_description__icontains="No description available")
 
         if not jobs.exists():
-            return Response({"error": "No jobs with meaningful descriptions found in the database."}, status=404)
+            return Response({"error": "No jobs with meaningful descriptions found."}, status=404)
 
-        # Use a set to track unique job_position and company_name pairs
-        unique_jobs = {}
-        priority_queue = []
-
+        job_scores = []
         for job in jobs:
-            # Generate a unique key for the combination of job_position and company_name
-            unique_key = (job.job_position.lower(), job.company_name.lower())
-            if unique_key in unique_jobs:
-                continue
-            unique_jobs[unique_key] = job
+            job_embedding = get_bert_embedding(f"{job.job_description} {job.job_function or ''} {job.industries or ''}")
+            similarity = torch.nn.functional.cosine_similarity(cv_embedding, job_embedding)
+            job_scores.append((similarity, job))
 
-            job_data = f"{job.job_description} {job.job_function or ''} {job.industries or ''}"
-            job_tokens = Counter(job_data.lower().split())
-            job_tfidf = {word: freq / sum(job_tokens.values()) for word, freq in job_tokens.items()}
+        job_scores.sort(reverse=True, key=lambda x: x[0])
+        top_jobs = job_scores[:3]
 
-            # Calculate relevance score using cosine similarity
-            dot_product = sum(cv_tfidf[word] * job_tfidf.get(word, 0) for word in cv_tfidf)
-            magnitude_cv = sqrt(sum(val ** 2 for val in cv_tfidf.values()))
-            magnitude_job = sqrt(sum(val ** 2 for val in job_tfidf.values()))
-            relevance_score = (
-                    dot_product / (magnitude_cv * magnitude_job) * 100
-            ) if magnitude_cv and magnitude_job else 0
+        openai_prompt = f"""
+            Here are the top 3 job matches for a candidate:
+            1. {top_jobs[0][1].job_position} at {top_jobs[0][1].company_name} (Score: {round(top_jobs[0][0], 2)}%)
+            Description: {top_jobs[0][1].job_description[:500]}
 
-            priority_queue.append((relevance_score, job))
+            2. {top_jobs[1][1].job_position} at {top_jobs[1][1].company_name} (Score: {round(top_jobs[1][0], 2)}%)
+            Description: {top_jobs[1][1].job_description[:500]}
 
-        priority_queue.sort(reverse=True, key=lambda x: x[0])
+            3. {top_jobs[2][1].job_position} at {top_jobs[2][1].company_name} (Score: {round(top_jobs[2][0], 2)}%)
+            Description: {top_jobs[2][1].job_description[:500]}
 
-        ranked_jobs = []
-        for score, job in priority_queue:
-            ranked_jobs.append({
-                "job_position": job.job_position,
-                "company_name": job.company_name,
-                "job_description": (job.job_description[:300] + '...') if len(
-                    job.job_description) > 300 else job.job_description,
-                "score": round(score, 2),
-                "apply_link": job.job_apply_link
-            })
+            Which job is the best fit for the candidate, and why? Consider skills, experience, and career growth.
+            Rank them on a scale of 1-10 as in recommended, with 10 being the best fit.
+            """
+
+        openai.api_key = "YOUR_OPENAI_API_KEY"
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": openai_prompt}]
+        )
+        ai_recommendation = response["choices"][0]["message"]["content"]
+
+        ranked_jobs = [
+            {
+                "job_position": job[1].job_position,
+                "company_name": job[1].company_name,
+                "job_description": job[1].job_description[:300] + "...",
+                "score": round(job[0], 2),
+                "apply_link": job[1].job_apply_link
+            }
+            for job in top_jobs
+        ]
 
         return Response({
             "ranked_jobs": ranked_jobs,
-            "description": "Score represents the match percentage between your CV and the job description."
+            "ai_recommendation": ai_recommendation,
+            "description": "AI has analyzed the top 3 jobs and provided a recommendation."
         }, status=200)
-
