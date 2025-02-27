@@ -221,11 +221,14 @@ class CvUpload(viewsets.ViewSet):
 
         Based on the candidate's CV, which job is the best fit? Consider skills, experience, and career growth.
         Rank them on a scale of 1-10, with 10 being the best fit.
+        
+        Also when returning the data dont wrap it in any ** to try to make it look better in the response just use 1. and -. 
+        also use full %
         """
 
         response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": openai_prompt}]
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": openai_prompt}],
         )
         ai_recommendation = response.choices[0].message.content
 
@@ -243,5 +246,4 @@ class CvUpload(viewsets.ViewSet):
         return Response({
             "ranked_jobs": ranked_jobs,
             "ai_recommendation": ai_recommendation,
-            "description": "AI has analyzed the top 3 jobs and provided a recommendation."
         }, status=200)
