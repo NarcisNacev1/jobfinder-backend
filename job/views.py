@@ -8,7 +8,7 @@ from jobfinder_backend.settings import api_key
 from .models import JobPosition, Cv
 from transformers import BertTokenizer, BertModel
 import torch
-import openai
+from openai import OpenAI
 import os
 from dotenv import load_dotenv
 
@@ -180,6 +180,8 @@ class CvUpload(viewsets.ViewSet):
         """
         Rank jobs using BERT embeddings and get OpenAI recommendation for the top 3.
         """
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
         user_cv = Cv.objects.order_by('-uploaded_at').first()
         if not user_cv:
             return Response({"error": "No CV found."}, status=404)
@@ -197,7 +199,7 @@ class CvUpload(viewsets.ViewSet):
         for job in jobs:
             job_embedding = get_bert_embedding(f"{job.job_description} {job.job_function or ''} {job.industries or ''}")
             similarity = torch.nn.functional.cosine_similarity(cv_embedding, job_embedding)
-            job_scores.append((similarity, job))
+            job_scores.append((similarity.item(), job))  # Use .item() to convert tensor to scalar
 
         job_scores.sort(reverse=True, key=lambda x: x[0])
         top_jobs = job_scores[:3]
@@ -221,16 +223,11 @@ class CvUpload(viewsets.ViewSet):
         Rank them on a scale of 1-10, with 10 being the best fit.
         """
 
-        openai.api_key = os.getenv("OPENAI_API_KEY")
-
-        if not openai.api_key:
-            raise ValueError("OpenAI API Key not found! Make sure it's set in the .env file.")
-
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": openai_prompt}]
         )
-        ai_recommendation = response["choices"][0]["message"]["content"]
+        ai_recommendation = response.choices[0].message.content
 
         ranked_jobs = [
             {
