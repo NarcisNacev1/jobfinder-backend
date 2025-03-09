@@ -22,6 +22,7 @@ class Cv(models.Model):
 
 
 class JobPosition(models.Model):
+    external_job_id = models.CharField(max_length=100, null=True, blank=True, unique=True)
     job_position = models.CharField(max_length=255)
     company_name = models.CharField(max_length=255)
     job_location = models.CharField(max_length=255)
