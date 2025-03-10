@@ -1,0 +1,12 @@
+{
+    "cv_data": {
+        "full_name": "15651486",
+        "skills": "Skills",
+        "experience": "Seeking a position as a Director of I.T. in a company where I am able to utilize my experience and training in networking, troubleshooting, and Work Experience",
+        "education": "Education and Training"
+    },
+    "ai_response": {
+        "error": "The AI response could not be parsed as JSON.",
+        "raw_response": "The provided resume details are insufficient to extract the necessary information like the Role, Education Level and Experience Years. Please provide a complete resume."
+    }
+}

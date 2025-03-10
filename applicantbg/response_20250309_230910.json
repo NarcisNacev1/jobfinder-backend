@@ -1,0 +1,12 @@
+{
+    "cv_data": {
+        "full_name": "10089434",
+        "skills": "Versatile Systems Administrator possessing superior troubleshooting skills for networking issues, end user problems, and network security. and focused on taking a systematic approach to solving complex problems. Demonstrated exceptional technical knowledge and skills while Skills",
+        "experience": "Experienced in server management, systems analysis, and offering in-depth understanding of IT infrastructure areas. Detail-oriented, independent, VMWare experience Disaster recovery Experience",
+        "education": "Giving and participating in training and education programs to explain upgrades to end users. Education"
+    },
+    "ai_response": {
+        "error": "The AI response could not be parsed as JSON.",
+        "raw_response": "The resume does not provide all the details required to generate the JSON. However, based on the available information, the following JSON format can be generated:\n\n```json\n{\n  \"Role\": \"Systems Administrator\",\n  \"Education Level\": \"Other\",\n  \"Experience Years\": \"unknown\"\n}\n```"
+    }
+}

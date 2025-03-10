@@ -1,0 +1,12 @@
+{
+    "cv_data": {
+        "full_name": "11580408",
+        "skills": "Strengths - excellent communication skills, strong problem solving skills. Sound work ethic, capable of working independently or in a team Skills",
+        "experience": "AVP / Director of Information Technology I Network Engineer with extensive experience. Work Experience",
+        "education": "Education and Training"
+    },
+    "ai_response": {
+        "error": "The AI response could not be parsed as JSON.",
+        "raw_response": "The resume does not provide enough information to accurately extract the requested details. However, based on the information given, the closest estimation can be -\n\n```json\n{\n  \"Role\": \"Network Engineer\",\n  \"Education Level\": \"Other\",\n  \"Experience Years\": \"unknown\"\n}\n```"
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "cv_data": {
+        "full_name": "16186411",
+        "skills": "Net Technologies: .Net Framework 4.0/4.5, ASP.Net, ASP.NET MVC, VB.Net, ADO.Net, Entity Framework, AJAX, Web Service, Skills",
+        "experience": "JavaScript, jQuery, CSS, Bootstrap CSS, HTML, XML and AJAX. Strong experience in data retrieval and manipulation using ADO.Net data objects such as Dataset, Data Reader, Data list, Data Adaptor, Entity Frame work. Good experience in writing Class Library using C# , LINQ to Based Authentication and Role-Based Authorization. Involved in bug fixes and production support. Worked closely with Scrum Master for Professional Experience There are three roles tied to application they are Tutee, Tutor, and Scheduler. Used role based authorization for various pages. Filtering of the data of listview based on the role. for late fee assessment Access to page based on the role (Role based authentication) Personalized Email for Outlook: The goal of the",
+        "education": "(ADN), DoIT which supports University of Missouri System faculty and students through agile and rapid creation of new applications. GoAdmin: Description: GoMizzou is the University of Missouri flagship mobile application, designed to provide services to all possible users of the university. Education Master of Science , Computer Engineering Present University of Missouri \u00ef\u00bc\u200b State GPA: GPA: 3.7 Computer Engineering GPA: 3.7 Bachelor of Technology , Electrical and Electronics Engineering May 2013 Jawaharlal Nehru Technological University India GPA: GPA: 3.65"
+    },
+    "ai_response": {
+        "Role": "full stack development",
+        "Education Level": "MSc",
+        "Experience Years": "unknown"
+    }
+}

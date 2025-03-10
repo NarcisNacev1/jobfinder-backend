@@ -1,0 +1,12 @@
+{
+    "cv_data": {
+        "full_name": "13836471",
+        "skills": "Skills",
+        "experience": "Experience",
+        "education": "Education"
+    },
+    "ai_response": {
+        "error": "The AI response could not be parsed as JSON.",
+        "raw_response": "As a language model AI developed by OpenAI, I need sample inputs to provide the desired responses. Your question seems to be an instruction for a task but lacks specific data or sample documents for me to extract information from. \n\nHowever, I can provide an example based on the instructions you provided. \n\nLet's say we have a resume with details as follows:\n\n```\nResume:\n\nJob Role: Software Engineer \nEducation: Masters in Computer Science \nExperience: Worked in XYZ company from 2010 to 2022\n```\n\nBased on this, the JSON output would look like this:\n\n```json\n{\n  \"Role\": \"software engineering\",\n  \"Education Level\": \"MSc\",\n  \"Experience Years\": 12\n}\n```\nPlease provide a specific resume for me to extract the information."
+    }
+}

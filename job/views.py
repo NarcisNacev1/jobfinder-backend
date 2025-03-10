@@ -57,6 +57,121 @@ class CvUpload(viewsets.ViewSet):
     Viewset for handling CV uploads
     """
 
+    @action(detail=False, methods=["post"], url_path="processApplicants")
+    def process_first_export(self, request):
+        """
+        Process a JSON file provided in the request body, extract the CV, feed it to an OpenAI prompt,
+        and save the response to the applicantbg folder.
+        """
+        try:
+            # Ensure the applicantbg folder exists
+            applicantbg_folder = "applicantbg"
+            if not os.path.exists(applicantbg_folder):
+                os.makedirs(applicantbg_folder)
+
+            # Check if a file is included in the request
+            if "data" not in request.FILES:
+                return Response({"error": "No file uploaded."}, status=400)
+
+            # Get the uploaded file
+            uploaded_file = request.FILES["data"]
+
+            # Read and parse the JSON file
+            try:
+                data = json.loads(uploaded_file.read().decode("utf-8"))
+            except json.JSONDecodeError:
+                return Response({"error": "Invalid JSON file."}, status=400)
+
+            # Debug: Print the incoming JSON data
+            print("Incoming JSON data:", data)
+
+            # Extract CV data
+            cv_data = data.get("cv", {})
+            if not cv_data:
+                return Response({"error": "No CV data found in the JSON file."}, status=404)
+
+            # Debug: Print the extracted CV data
+            print("Extracted CV data:", cv_data)
+
+            # Prepare the OpenAI prompt
+            openai_prompt = f"""
+            Extract the following details from the given resume. Return the output in JSON format.
+            ### Resume:
+            {cv_data.get("skills", "")} {cv_data.get("experience", "")} {cv_data.get("education", "")}
+
+            ### Extract the following details:
+            1. Role: Identify the candidate’s current or most relevant job role ("software engineering", "web development", "data science",
+                        "machine learning", "artificial intelligence", "cloud computing",
+                        "cybersecurity", "mobile development", "devops", "backend development",
+                        "frontend development", "full stack development", "Project Management" ).
+            2. Education Level: Extract the highest level of one education achieved [
+                                                                                      "HSD",
+                                                                                      "BSc",
+                                                                                      "MSc",
+                                                                                      "PhD",
+                                                                                      "Certifications",
+                                                                                      "Other"
+                                                                                    ].
+            3. Experience Years: Estimate the total number of years of professional work experience if you do not know say unknown.
+
+            ### Output Format (JSON):
+            {{
+              "Role": "<Extracted Role> (only choose from the following above 1.Roles if it does not fit any choose the closest one to it)",
+              "Education Level": "<Extracted Education> (only choose from the following above Education Levels if it does not fit any choose closest one to it)",
+              "Experience Years": <Extracted Years>
+            }}
+            """
+
+            # Debug: Print the OpenAI prompt
+            print("OpenAI Prompt:", openai_prompt)
+
+            # Send the prompt to OpenAI
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            if not os.getenv("OPENAI_API_KEY"):
+                return Response({"error": "OpenAI API key not configured"}, status=500)
+
+            response = client.chat.completions.create(
+                model="gpt-4",  # Use a model that supports JSON output
+                messages=[{"role": "user", "content": openai_prompt}],
+            )
+
+            # Debug the OpenAI response
+            print("OpenAI Response Content:", response.choices[0].message.content)
+
+            # Parse the AI response
+            try:
+                ai_response = json.loads(response.choices[0].message.content)
+            except json.JSONDecodeError:
+                ai_response = {
+                    "error": "The AI response could not be parsed as JSON.",
+                    "raw_response": response.choices[0].message.content
+                }
+
+            # Save the AI response to the applicantbg folder
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            response_filename = f"response_{timestamp}.json"
+            response_file_path = os.path.join(applicantbg_folder, response_filename)
+
+            with open(response_file_path, "w") as f:
+                json.dump({
+                    "cv_data": cv_data,
+                    "ai_response": ai_response
+                }, f, indent=4)
+
+            return Response({
+                "cv_data": cv_data,
+                "ai_response": ai_response,
+                "saved_to": response_file_path
+            }, status=200)
+
+        except Exception as e:
+            # Add comprehensive error handling
+            import traceback
+            return Response({
+                "error": f"An error occurred while processing the first export: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, status=500)
+
     @action(detail=False, methods=["post"], url_path="json-ranker")
     def json_ranker(self, request):
         """

@@ -1,0 +1,12 @@
+{
+    "cv_data": {
+        "full_name": "18187364",
+        "skills": "Oracle Certified Professional (OCP), versions 8.0, 8i, 9i, 10g, 11g Strong collaborative skills Skills",
+        "experience": "Professional Experience Train other Database Administrators in security best practices, change control, monitoring, account management and role-based user Developed and implemented procedures that reduced in-house database problem tickets by 60%, job failures by 80% and on-call support",
+        "education": "Building automated database risk/security models for quantifying degrees of database risk and enabling the standardization and prioritization Education"
+    },
+    "ai_response": {
+        "error": "The AI response could not be parsed as JSON.",
+        "raw_response": "The resume does not provide specific information on the exact role, education level, and years of experience. However, given the information available this would be a possible extraction:\n\n```json\n{\n  \"Role\": \"database administration\",\n  \"Education Level\": \"Certifications\",\n  \"Experience Years\": \"unknown\"\n}\n```\n\nPlease note, the exact role 'database administration' is not listed in the given roles. So, the closest role from the given roles to 'database administrator' has been selected. The candidate has Oracle Certified Professional (OCP) certification hence, the education level has been mentioned as 'Certifications'. The years of experience is not clearly mentioned in the resume, so 'unknown' is the appropriate response here."
+    }
+}

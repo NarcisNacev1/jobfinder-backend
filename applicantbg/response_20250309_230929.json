@@ -1,0 +1,12 @@
+{
+    "cv_data": {
+        "full_name": "10839851",
+        "skills": "Skills",
+        "experience": "Experience with Information Technology Service Management (ITSM) Scanners Experience with Information Technology\u00c2 Experience with Information Technology Service Management Multiplexors Experience with Information Technology\u00c2 TCP/IP Configuration Experience with Information Technology Service Managment Experience with Information Technology Service Management Experience with Information Technology\u00c2 Experience with Information Technology Service Managment Experience with Information Technology Service Management",
+        "education": ""
+    },
+    "ai_response": {
+        "error": "The AI response could not be parsed as JSON.",
+        "raw_response": "The resume doesn't provide enough information to accurately answer the given extraction details. Hence, without more details, an accurate response can't be given. However, here's how it would look in JSON format if the details were available:\n\n```json\n{\n  \"Role\": \"Unknown\",\n  \"Education Level\": \"Unknown\",\n  \"Experience Years\": \"Unknown\"\n}\n```"
+    }
+}
