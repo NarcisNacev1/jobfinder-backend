@@ -57,6 +57,259 @@ class CvUpload(viewsets.ViewSet):
     Viewset for handling CV uploads
     """
 
+    @action(detail=False, methods=["get"], url_path="rank-jobs")
+    def rank_jobs(self, request):
+        """
+        Rank jobs using two distinct methods:
+        Method A: Pure cosine similarity on TF-IDF vectors
+        Method B: BERT embeddings with semantic similarity
+        """
+        try:
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            if not os.getenv("OPENAI_API_KEY"):
+                return Response({"error": "OpenAI API key not configured"}, status=500)
+
+            user_cv = Cv.objects.order_by('-uploaded_at').first()
+            if not user_cv:
+                return Response({"error": "No CV found."}, status=404)
+
+            # Get CV text for both methods
+            cv_text = f"{user_cv.skills} {user_cv.experience} {user_cv.education}"
+
+            # Get jobs with meaningful descriptions
+            jobs = JobPosition.objects.exclude(job_description__isnull=True) \
+                .exclude(job_description__exact="") \
+                .exclude(job_description__icontains="No description available") \
+                .exclude(job_description__icontains="Fetching description...")
+
+            if not jobs.exists():
+                return Response({"error": "No jobs with meaningful descriptions found."}, status=404)
+
+            # Deduplicate jobs based on position, company, and description
+            unique_jobs = {}
+            for job in jobs:
+                key = (job.job_position, job.company_name, job.job_description)
+                if key not in unique_jobs:
+                    unique_jobs[key] = job
+            jobs = list(unique_jobs.values())
+
+            # Create text representations for all jobs
+            job_texts = []
+            job_objects = []
+
+            for job in jobs:
+                job_text = f"{job.job_description} {job.job_function or ''} {job.industries or ''}"
+                job_texts.append(job_text)
+                job_objects.append(job)
+
+            # METHOD A: TF-IDF + Cosine Similarity (traditional NLP approach)
+            vectorizer = TfidfVectorizer(stop_words='english')
+
+            # Create document-term matrix
+            all_texts = [cv_text] + job_texts
+            tfidf_matrix = vectorizer.fit_transform(all_texts)
+
+            # Get CV vector (first row) and job vectors (remaining rows)
+            cv_vector = tfidf_matrix[0:1]
+            job_vectors = tfidf_matrix[1:]
+
+            # Calculate cosine similarity between CV and all jobs
+            cosine_similarities = sklearn_cosine_similarity(cv_vector, job_vectors).flatten()
+
+            # Create sorted list of (similarity, job) pairs
+            cosine_scores = [(score, job_objects[i]) for i, score in enumerate(cosine_similarities)]
+            cosine_scores.sort(key=lambda x: x[0], reverse=True)
+
+            # Prevent duplicate recommendations
+            top_cosine_job_ids = set()
+            unique_cosine_scores = []
+
+            for score, job in cosine_scores:
+                if job.id not in top_cosine_job_ids:
+                    top_cosine_job_ids.add(job.id)
+                    unique_cosine_scores.append((score, job))
+                    if len(unique_cosine_scores) >= 3:
+                        break
+
+            top_cosine_jobs = unique_cosine_scores
+
+            # Check if we have enough unique jobs
+            if len(top_cosine_jobs) < 3:
+                return Response({"error": "Not enough unique jobs to rank."}, status=404)
+
+            # METHOD B: BERT Embeddings with Semantic Similarity
+            # Get BERT embedding for CV
+            cv_embedding = get_bert_embedding(cv_text)
+
+            bert_scores = []
+            for i, job_text in enumerate(job_texts):
+                # Get BERT embedding for job
+                job_embedding = get_bert_embedding(job_text)
+
+                # Calculate similarity using BERT embeddings
+                similarity = torch.nn.functional.cosine_similarity(cv_embedding, job_embedding)
+                bert_scores.append((similarity.item(), job_objects[i]))
+
+            # Sort by the similarity score
+            bert_scores.sort(key=lambda x: x[0], reverse=True)
+
+            # Prevent duplicate recommendations
+            top_bert_job_ids = set()
+            unique_bert_scores = []
+
+            for score, job in bert_scores:
+                if job.id not in top_bert_job_ids:
+                    top_bert_job_ids.add(job.id)
+                    unique_bert_scores.append((score, job))
+                    if len(unique_bert_scores) >= 3:
+                        break
+
+            top_bert_jobs = unique_bert_scores
+
+            # Function to safely truncate text
+            def safe_truncate(text, length=500):
+                if text and isinstance(text, str):
+                    return text[:length] + "..." if len(text) > length else text
+                return "Not available"
+
+            # Normalize scores for better comparison
+            def normalize_scores(scores, min_val=0, max_val=100):
+                if not scores:
+                    return []
+                min_score = min(scores)
+                max_score = max(scores)
+                if max_score == min_score:  # Avoid division by zero
+                    return [max_val] * len(scores)
+                return [min_val + (score - min_score) * (max_val - min_val) / (max_score - min_score) for score in
+                        scores]
+
+            # Extract just the scores for normalization
+            cosine_scores_values = [score for score, _ in top_cosine_jobs]
+            bert_scores_values = [score for score, _ in top_bert_jobs]
+
+            # Normalize scores
+            normalized_cosine = normalize_scores(cosine_scores_values)
+            normalized_bert = normalize_scores(bert_scores_values)
+
+            # Prepare the prompt for the AI judge with normalized scores
+            openai_prompt = f"""
+                You are an impartial AI judge for NextMatch, a job recommender system. Your task is to evaluate how well a candidate's 
+                resume matches job vacancies. The system has already calculated similarity scores (0-100) using two different methods.
+
+                Input:
+                Candidate's CV: 
+                {cv_text}
+
+                Method A - Top 3 Job Matches (TF-IDF with Cosine Similarity):
+                1. {top_cosine_jobs[0][1].job_position} at {top_cosine_jobs[0][1].company_name} (Score: {normalized_cosine[0]:.2f})
+                   Description: {safe_truncate(top_cosine_jobs[0][1].job_description)}
+
+                2. {top_cosine_jobs[1][1].job_position} at {top_cosine_jobs[1][1].company_name} (Score: {normalized_cosine[1]:.2f})
+                   Description: {safe_truncate(top_cosine_jobs[1][1].job_description)}
+
+                3. {top_cosine_jobs[2][1].job_position} at {top_cosine_jobs[2][1].company_name} (Score: {normalized_cosine[2]:.2f})
+                   Description: {safe_truncate(top_cosine_jobs[2][1].job_description)}
+
+                Method B - Top 3 Job Matches (BERT Semantic Embeddings):
+                1. {top_bert_jobs[0][1].job_position} at {top_bert_jobs[0][1].company_name} (Score: {normalized_bert[0]:.2f})
+                   Description: {safe_truncate(top_bert_jobs[0][1].job_description)}
+
+                2. {top_bert_jobs[1][1].job_position} at {top_bert_jobs[1][1].company_name} (Score: {normalized_bert[1]:.2f})
+                   Description: {safe_truncate(top_bert_jobs[1][1].job_description)}
+
+                3. {top_bert_jobs[2][1].job_position} at {top_bert_jobs[2][1].company_name} (Score: {normalized_bert[2]:.2f})
+                   Description: {safe_truncate(top_bert_jobs[2][1].job_description)}
+
+                Please provide an analysis in **valid JSON format** with the following structure:
+                {{
+                  "methodAssessment": {{
+                    "betterMethod": "A or B",
+                    "justification": "Explanation of which method provided better matches"
+                  }},
+                  "adjustedMatchScores": {{
+                    "1": {{
+                      "jobTitle": "Job Title",
+                      "adjustedScore": 0-100
+                    }},
+                    "2": {{
+                      "jobTitle": "Job Title",
+                      "adjustedScore": 0-100
+                    }},
+                    "3": {{
+                      "jobTitle": "Job Title",
+                      "adjustedScore": 0-100
+                    }}
+                  }},
+                  "bestMatch": {{
+                    "jobTitle": "Job Title",
+                    "justification": {{
+                      "skillsAlignment": "Explanation of skills alignment",
+                      "experienceRelevance": "Explanation of experience relevance",
+                      "careerGrowthPotential": "Explanation of career growth potential"
+                    }}
+                  }}
+                }}
+                """
+
+            response = client.chat.completions.create(
+                model="gpt-4",  # Use a model that supports JSON output
+                messages=[{"role": "user", "content": openai_prompt}],
+            )
+
+            # Debug the OpenAI response
+            import json
+            print("OpenAI Response Content:", response.choices[0].message.content)
+
+            # Parse the AI recommendation
+            try:
+                ai_recommendation = json.loads(response.choices[0].message.content)
+            except json.JSONDecodeError:
+                ai_recommendation = {
+                    "error": "The AI recommendation could not be parsed as JSON.",
+                    "raw_response": response.choices[0].message.content
+                }
+
+            # Format the results for the frontend
+            method_a_jobs = [
+                {
+                    "job_position": job[1].job_position,
+                    "company_name": job[1].company_name,
+                    "job_description": safe_truncate(job[1].job_description, 300),
+                    "raw_score": job[0],
+                    "score": round(normalized_cosine[i], 2),  # Use normalized scores
+                    "apply_link": job[1].job_apply_link,
+                    "job_id": job[1].id
+                }
+                for i, job in enumerate(top_cosine_jobs)
+            ]
+
+            method_b_jobs = [
+                {
+                    "job_position": job[1].job_position,
+                    "company_name": job[1].company_name,
+                    "job_description": safe_truncate(job[1].job_description, 300),
+                    "raw_score": job[0],
+                    "score": round(normalized_bert[i], 2),  # Use normalized scores
+                    "apply_link": job[1].job_apply_link,
+                    "job_id": job[1].id
+                }
+                for i, job in enumerate(top_bert_jobs)
+            ]
+
+            return Response({
+                "method_a_jobs": method_a_jobs,
+                "method_b_jobs": method_b_jobs,
+                "ai_recommendation": ai_recommendation,  # Return parsed JSON or error
+            }, status=200)
+
+        except Exception as e:
+            # Add comprehensive error handling
+            import traceback
+            return Response({
+                "error": f"An error occurred during job ranking: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, status=500)
+
     @action(detail=False, methods=["post"], url_path="processApplicants")
     def process_first_export(self, request):
         """
@@ -536,41 +789,41 @@ class CvUpload(viewsets.ViewSet):
                 "traceback": traceback.format_exc()
             }, status=500)
 
+    @action(detail=False, methods=["post"], url_path="create")
+    def createCv(self, request):
+        """
+        Handle the file upload, parse the CV for information, and save it.
+        """
+        serializer = CvSerializer(data=request.data)
 
-def create(self, request):
-    """
-    Handle the file upload, parse the CV for information, and save it.
-    """
-    serializer = CvSerializer(data=request.data)
+        if serializer.is_valid():
+            cv_instance = serializer.save()
 
-    if serializer.is_valid():
-        cv_instance = serializer.save()
+            cv_file_path = cv_instance.cv_file.path
+            cv_text = extract_text_from_pdf(cv_file_path)
 
-        cv_file_path = cv_instance.cv_file.path
-        cv_text = extract_text_from_pdf(cv_file_path)
+            skills_keywords = ["skills", "technologies", "expertise"]
+            education_keywords = ["education", "university", "degree"]
+            experience_keywords = ["experience", "worked at", "role", "job"]
 
-        skills_keywords = ["skills", "technologies", "expertise"]
-        education_keywords = ["education", "university", "degree"]
-        experience_keywords = ["experience", "worked at", "role", "job"]
+            # Extract all sections at once
+            cv_instance.skills = extract_section(cv_text, skills_keywords)
+            cv_instance.education = extract_section(cv_text, education_keywords)
+            cv_instance.experience = extract_section(cv_text, experience_keywords)
+            cv_instance.save()
 
-        # Extract all sections at once
-        cv_instance.skills = extract_section(cv_text, skills_keywords)
-        cv_instance.education = extract_section(cv_text, education_keywords)
-        cv_instance.experience = extract_section(cv_text, experience_keywords)
-        cv_instance.save()
+            return Response({
+                "full_name": cv_instance.full_name,
+                "email": cv_instance.email,
+                "phone_number": cv_instance.phone_number,
+                "location": cv_instance.location,
+                "skills": cv_instance.skills,
+                "education": cv_instance.education,
+                "experience": cv_instance.experience,
+                "cv_file": cv_instance.cv_file.url
+            }, status=status.HTTP_201_CREATED)
 
-        return Response({
-            "full_name": cv_instance.full_name,
-            "email": cv_instance.email,
-            "phone_number": cv_instance.phone_number,
-            "location": cv_instance.location,
-            "skills": cv_instance.skills,
-            "education": cv_instance.education,
-            "experience": cv_instance.experience,
-            "cv_file": cv_instance.cv_file.url
-        }, status=status.HTTP_201_CREATED)
-
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 @action(detail=False, methods=["get"], url_path="export-top-jobs")
@@ -809,257 +1062,3 @@ def fetch_job(self, request):
         {"jobs": f"Successfully processed {len(detailed_jobs)} jobs."},
         status=status.HTTP_200_OK
     )
-
-
-@action(detail=False, methods=["get"], url_path="rank-jobs")
-def rank_jobs(self, request):
-    """
-    Rank jobs using two distinct methods:
-    Method A: Pure cosine similarity on TF-IDF vectors
-    Method B: BERT embeddings with semantic similarity
-    """
-    try:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        if not os.getenv("OPENAI_API_KEY"):
-            return Response({"error": "OpenAI API key not configured"}, status=500)
-
-        user_cv = Cv.objects.order_by('-uploaded_at').first()
-        if not user_cv:
-            return Response({"error": "No CV found."}, status=404)
-
-        # Get CV text for both methods
-        cv_text = f"{user_cv.skills} {user_cv.experience} {user_cv.education}"
-
-        # Get jobs with meaningful descriptions
-        jobs = JobPosition.objects.exclude(job_description__isnull=True) \
-            .exclude(job_description__exact="") \
-            .exclude(job_description__icontains="No description available") \
-            .exclude(job_description__icontains="Fetching description...")
-
-        if not jobs.exists():
-            return Response({"error": "No jobs with meaningful descriptions found."}, status=404)
-
-        # Deduplicate jobs based on position, company, and description
-        unique_jobs = {}
-        for job in jobs:
-            key = (job.job_position, job.company_name, job.job_description)
-            if key not in unique_jobs:
-                unique_jobs[key] = job
-        jobs = list(unique_jobs.values())
-
-        # Create text representations for all jobs
-        job_texts = []
-        job_objects = []
-
-        for job in jobs:
-            job_text = f"{job.job_description} {job.job_function or ''} {job.industries or ''}"
-            job_texts.append(job_text)
-            job_objects.append(job)
-
-        # METHOD A: TF-IDF + Cosine Similarity (traditional NLP approach)
-        vectorizer = TfidfVectorizer(stop_words='english')
-
-        # Create document-term matrix
-        all_texts = [cv_text] + job_texts
-        tfidf_matrix = vectorizer.fit_transform(all_texts)
-
-        # Get CV vector (first row) and job vectors (remaining rows)
-        cv_vector = tfidf_matrix[0:1]
-        job_vectors = tfidf_matrix[1:]
-
-        # Calculate cosine similarity between CV and all jobs
-        cosine_similarities = sklearn_cosine_similarity(cv_vector, job_vectors).flatten()
-
-        # Create sorted list of (similarity, job) pairs
-        cosine_scores = [(score, job_objects[i]) for i, score in enumerate(cosine_similarities)]
-        cosine_scores.sort(key=lambda x: x[0], reverse=True)
-
-        # Prevent duplicate recommendations
-        top_cosine_job_ids = set()
-        unique_cosine_scores = []
-
-        for score, job in cosine_scores:
-            if job.id not in top_cosine_job_ids:
-                top_cosine_job_ids.add(job.id)
-                unique_cosine_scores.append((score, job))
-                if len(unique_cosine_scores) >= 3:
-                    break
-
-        top_cosine_jobs = unique_cosine_scores
-
-        # Check if we have enough unique jobs
-        if len(top_cosine_jobs) < 3:
-            return Response({"error": "Not enough unique jobs to rank."}, status=404)
-
-        # METHOD B: BERT Embeddings with Semantic Similarity
-        # Get BERT embedding for CV
-        cv_embedding = get_bert_embedding(cv_text)
-
-        bert_scores = []
-        for i, job_text in enumerate(job_texts):
-            # Get BERT embedding for job
-            job_embedding = get_bert_embedding(job_text)
-
-            # Calculate similarity using BERT embeddings
-            similarity = torch.nn.functional.cosine_similarity(cv_embedding, job_embedding)
-            bert_scores.append((similarity.item(), job_objects[i]))
-
-        # Sort by the similarity score
-        bert_scores.sort(key=lambda x: x[0], reverse=True)
-
-        # Prevent duplicate recommendations
-        top_bert_job_ids = set()
-        unique_bert_scores = []
-
-        for score, job in bert_scores:
-            if job.id not in top_bert_job_ids:
-                top_bert_job_ids.add(job.id)
-                unique_bert_scores.append((score, job))
-                if len(unique_bert_scores) >= 3:
-                    break
-
-        top_bert_jobs = unique_bert_scores
-
-        # Function to safely truncate text
-        def safe_truncate(text, length=500):
-            if text and isinstance(text, str):
-                return text[:length] + "..." if len(text) > length else text
-            return "Not available"
-
-        # Normalize scores for better comparison
-        def normalize_scores(scores, min_val=0, max_val=100):
-            if not scores:
-                return []
-            min_score = min(scores)
-            max_score = max(scores)
-            if max_score == min_score:  # Avoid division by zero
-                return [max_val] * len(scores)
-            return [min_val + (score - min_score) * (max_val - min_val) / (max_score - min_score) for score in
-                    scores]
-
-        # Extract just the scores for normalization
-        cosine_scores_values = [score for score, _ in top_cosine_jobs]
-        bert_scores_values = [score for score, _ in top_bert_jobs]
-
-        # Normalize scores
-        normalized_cosine = normalize_scores(cosine_scores_values)
-        normalized_bert = normalize_scores(bert_scores_values)
-
-        # Prepare the prompt for the AI judge with normalized scores
-        openai_prompt = f"""
-            You are an impartial AI judge for NextMatch, a job recommender system. Your task is to evaluate how well a candidate's 
-            resume matches job vacancies. The system has already calculated similarity scores (0-100) using two different methods.
-
-            Input:
-            Candidate's CV: 
-            {cv_text}
-
-            Method A - Top 3 Job Matches (TF-IDF with Cosine Similarity):
-            1. {top_cosine_jobs[0][1].job_position} at {top_cosine_jobs[0][1].company_name} (Score: {normalized_cosine[0]:.2f})
-               Description: {safe_truncate(top_cosine_jobs[0][1].job_description)}
-
-            2. {top_cosine_jobs[1][1].job_position} at {top_cosine_jobs[1][1].company_name} (Score: {normalized_cosine[1]:.2f})
-               Description: {safe_truncate(top_cosine_jobs[1][1].job_description)}
-
-            3. {top_cosine_jobs[2][1].job_position} at {top_cosine_jobs[2][1].company_name} (Score: {normalized_cosine[2]:.2f})
-               Description: {safe_truncate(top_cosine_jobs[2][1].job_description)}
-
-            Method B - Top 3 Job Matches (BERT Semantic Embeddings):
-            1. {top_bert_jobs[0][1].job_position} at {top_bert_jobs[0][1].company_name} (Score: {normalized_bert[0]:.2f})
-               Description: {safe_truncate(top_bert_jobs[0][1].job_description)}
-
-            2. {top_bert_jobs[1][1].job_position} at {top_bert_jobs[1][1].company_name} (Score: {normalized_bert[1]:.2f})
-               Description: {safe_truncate(top_bert_jobs[1][1].job_description)}
-
-            3. {top_bert_jobs[2][1].job_position} at {top_bert_jobs[2][1].company_name} (Score: {normalized_bert[2]:.2f})
-               Description: {safe_truncate(top_bert_jobs[2][1].job_description)}
-
-            Please provide an analysis in **valid JSON format** with the following structure:
-            {{
-              "methodAssessment": {{
-                "betterMethod": "A or B",
-                "justification": "Explanation of which method provided better matches"
-              }},
-              "adjustedMatchScores": {{
-                "1": {{
-                  "jobTitle": "Job Title",
-                  "adjustedScore": 0-100
-                }},
-                "2": {{
-                  "jobTitle": "Job Title",
-                  "adjustedScore": 0-100
-                }},
-                "3": {{
-                  "jobTitle": "Job Title",
-                  "adjustedScore": 0-100
-                }}
-              }},
-              "bestMatch": {{
-                "jobTitle": "Job Title",
-                "justification": {{
-                  "skillsAlignment": "Explanation of skills alignment",
-                  "experienceRelevance": "Explanation of experience relevance",
-                  "careerGrowthPotential": "Explanation of career growth potential"
-                }}
-              }}
-            }}
-            """
-
-        response = client.chat.completions.create(
-            model="gpt-4",  # Use a model that supports JSON output
-            messages=[{"role": "user", "content": openai_prompt}],
-        )
-
-        # Debug the OpenAI response
-        import json
-        print("OpenAI Response Content:", response.choices[0].message.content)
-
-        # Parse the AI recommendation
-        try:
-            ai_recommendation = json.loads(response.choices[0].message.content)
-        except json.JSONDecodeError:
-            ai_recommendation = {
-                "error": "The AI recommendation could not be parsed as JSON.",
-                "raw_response": response.choices[0].message.content
-            }
-
-        # Format the results for the frontend
-        method_a_jobs = [
-            {
-                "job_position": job[1].job_position,
-                "company_name": job[1].company_name,
-                "job_description": safe_truncate(job[1].job_description, 300),
-                "raw_score": job[0],
-                "score": round(normalized_cosine[i], 2),  # Use normalized scores
-                "apply_link": job[1].job_apply_link,
-                "job_id": job[1].id
-            }
-            for i, job in enumerate(top_cosine_jobs)
-        ]
-
-        method_b_jobs = [
-            {
-                "job_position": job[1].job_position,
-                "company_name": job[1].company_name,
-                "job_description": safe_truncate(job[1].job_description, 300),
-                "raw_score": job[0],
-                "score": round(normalized_bert[i], 2),  # Use normalized scores
-                "apply_link": job[1].job_apply_link,
-                "job_id": job[1].id
-            }
-            for i, job in enumerate(top_bert_jobs)
-        ]
-
-        return Response({
-            "method_a_jobs": method_a_jobs,
-            "method_b_jobs": method_b_jobs,
-            "ai_recommendation": ai_recommendation,  # Return parsed JSON or error
-        }, status=200)
-
-    except Exception as e:
-        # Add comprehensive error handling
-        import traceback
-        return Response({
-            "error": f"An error occurred during job ranking: {str(e)}",
-            "traceback": traceback.format_exc()
-        }, status=500)
